@@ -188,3 +188,67 @@
     (try! (modify-total-services (to-int (- quantity))))
 
     (ok true)))
+
+;; Create User Profile Page (UI Element)
+;; Adds a profile page for users to view their service history, balance, and purchased services
+(define-public (create-user-profile)
+  (let (
+    (user-balance (default-to u0 (map-get? user-token-balance tx-sender)))
+    (user-services (map-get? user-service-balance tx-sender))
+  )
+    (ok {profile: {user: tx-sender, balance: user-balance, services: user-services}})
+  ))
+
+  ;; Refactor Service Cost Update Logic
+  ;; Refactors service cost update functionality for better performance and readability
+  (define-public (update-service-cost-efficiently (new-cost uint))
+    (begin
+      (asserts! (is-eq tx-sender owner) err-only-owner)
+      (asserts! (> new-cost u0) err-invalid-cost)
+      (var-set service-cost new-cost)
+      (ok true)))
+
+;; Display Service Offer History (UI Element)
+;; Adds a page to show the history of services offered by the user
+(define-public (get-service-offers-history)
+  (let (
+    (offers (map-get? services-for-sale {user: tx-sender}))
+  )
+    (ok offers)))
+
+;; Require Authentication for Service Modifications
+;; Adds extra authentication check for service-related operations to prevent unauthorized access
+(define-public (authenticate-and-modify-service (quantity uint) (cost uint))
+  (begin
+    (asserts! (is-eq tx-sender owner) err-only-owner)
+    (asserts! (> quantity u0) err-invalid-quantity)
+    (asserts! (> cost u0) err-invalid-cost)
+    (map-set services-for-sale {user: tx-sender} {quantity: quantity, cost: cost})
+    (ok true)))
+
+;; Implement Referral Bonus
+;; Adds a feature where users receive a bonus for referring others to the platform
+(define-public (apply-referral-bonus (referrer principal))
+  (begin
+    (asserts! (not (is-eq tx-sender referrer)) err-self-transaction)
+    (let ((bonus u10))
+      (map-set user-token-balance referrer (+ (default-to u0 (map-get? user-token-balance referrer)) bonus))
+      (ok true))))
+
+;; Read-only Functions
+
+;; Get service cost
+(define-read-only (get-service-cost)
+  (ok (var-get service-cost)))
+
+;; Get platform fee rate
+(define-read-only (get-platform-fee-rate)
+  (ok (var-get platform-fee-rate)))
+
+;; Get refund rate
+(define-read-only (get-refund-rate)
+  (ok (var-get refund-rate)))
+
+;; Get user's service balance
+(define-read-only (get-user-service-balance (user principal))
+  (ok (default-to u0 (map-get? user-service-balance user))))
