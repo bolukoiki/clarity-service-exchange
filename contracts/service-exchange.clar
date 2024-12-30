@@ -127,3 +127,64 @@
     (try! (modify-total-services (to-int quantity)))
     (map-set services-for-sale {user: tx-sender} {quantity: new-for-sale, cost: cost})
     (ok true)))
+
+;; Remove services from sale
+(define-public (remove-services-from-sale (quantity uint))
+  (let (
+    (current-for-sale (get quantity (default-to {quantity: u0, cost: u0} (map-get? services-for-sale {user: tx-sender}))))
+  )
+    (asserts! (>= current-for-sale quantity) err-insufficient-funds)
+    (try! (modify-total-services (to-int (- quantity))))
+    (map-set services-for-sale {user: tx-sender} 
+             {quantity: (- current-for-sale quantity), 
+              cost: (get cost (default-to {quantity: u0, cost: u0} (map-get? services-for-sale {user: tx-sender})))})
+    (ok true)))
+
+;; Purchase service from another user
+(define-public (purchase-service (provider principal) (quantity uint))
+  (let (
+    (service-data (default-to {quantity: u0, cost: u0} (map-get? services-for-sale {user: provider})))
+    (total-cost (* quantity (get cost service-data)))
+    (platform-fee (calculate-platform-fee total-cost))
+    (complete-cost (+ total-cost platform-fee))
+    (provider-balance (default-to u0 (map-get? user-service-balance provider)))
+    (buyer-balance (default-to u0 (map-get? user-token-balance tx-sender)))
+    (provider-token (default-to u0 (map-get? user-token-balance provider)))
+    (owner-token (default-to u0 (map-get? user-token-balance owner)))
+  )
+    (asserts! (not (is-eq tx-sender provider)) err-self-transaction)
+    (asserts! (> quantity u0) err-invalid-quantity)
+    (asserts! (>= (get quantity service-data) quantity) err-insufficient-funds)
+    (asserts! (>= provider-balance quantity) err-insufficient-funds)
+    (asserts! (>= buyer-balance complete-cost) err-insufficient-funds)
+
+    ;; Update balances
+    (map-set user-service-balance provider (- provider-balance quantity))
+    (map-set services-for-sale {user: provider} 
+             {quantity: (- (get quantity service-data) quantity), cost: (get cost service-data)})
+    (map-set user-token-balance tx-sender (- buyer-balance complete-cost))
+    (map-set user-service-balance tx-sender (+ (default-to u0 (map-get? user-service-balance tx-sender)) quantity))
+    (map-set user-token-balance provider (+ provider-token total-cost))
+    (map-set user-token-balance owner (+ owner-token platform-fee))
+
+    (ok true)))
+
+;; Refund service tokens
+(define-public (request-refund (quantity uint))
+  (let (
+    (user-balance (default-to u0 (map-get? user-service-balance tx-sender)))
+    (refund-value (calculate-refund quantity))
+    (contract-balance (default-to u0 (map-get? user-token-balance owner)))
+  )
+    (asserts! (> quantity u0) err-invalid-quantity)
+    (asserts! (>= user-balance quantity) err-insufficient-funds)
+    (asserts! (>= contract-balance refund-value) err-refund-failure)
+
+    ;; Adjust balances and update service count
+    (map-set user-service-balance tx-sender (- user-balance quantity))
+    (map-set user-token-balance tx-sender (+ (default-to u0 (map-get? user-token-balance tx-sender)) refund-value))
+    (map-set user-token-balance owner (- contract-balance refund-value))
+    (map-set user-service-balance owner (+ (default-to u0 (map-get? user-service-balance owner)) quantity))
+    (try! (modify-total-services (to-int (- quantity))))
+
+    (ok true)))
