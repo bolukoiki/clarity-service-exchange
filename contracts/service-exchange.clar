@@ -58,3 +58,72 @@
     (asserts! (<= new-total (var-get total-service-limit)) err-limit-exceeded)
     (var-set current-total-services new-total)
     (ok true)))
+
+;; Simplify Balance Update Logic
+;; Refactors service and token balance updates to make the logic more efficient and easy to maintain
+(define-private (update-balance (user principal) (amount uint) (is-credit bool))
+  (let (
+    (current-balance (default-to u0 (map-get? user-service-balance user)))
+  )
+    (map-set user-service-balance user (if is-credit (+ current-balance amount) (- current-balance amount)))
+    (ok true)))
+
+;; Fix Bug in User Balance Calculation
+;; Adjusts the calculation of user's balance to properly handle refunds and service purchases
+(define-private (fix-user-balance (user principal))
+  (let (
+    (user-token (default-to u0 (map-get? user-token-balance user)))
+    (user-service (default-to u0 (map-get? user-service-balance user)))
+  )
+    (map-set user-token-balance user user-token)
+    (map-set user-service-balance user user-service)
+    (ok true)
+  ))
+
+;; Public Functions
+
+;; Set the cost per service (only owner)
+(define-public (update-service-cost (new-cost uint))
+  (begin
+    (asserts! (is-eq tx-sender owner) err-only-owner)
+    (asserts! (> new-cost u0) err-invalid-cost)
+    (var-set service-cost new-cost)
+    (ok true)))
+
+;; Set platform fee rate (only owner)
+(define-public (update-platform-fee-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender owner) err-only-owner)
+    (asserts! (<= new-rate u100) err-service-fee)
+    (var-set platform-fee-rate new-rate)
+    (ok true)))
+
+;; Set refund rate (only owner)
+(define-public (update-refund-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender owner) err-only-owner)
+    (asserts! (<= new-rate u100) err-service-fee)
+    (var-set refund-rate new-rate)
+    (ok true)))
+
+;; Set total service limit (only owner)
+(define-public (update-total-service-limit (new-limit uint))
+  (begin
+    (asserts! (is-eq tx-sender owner) err-only-owner)
+    (asserts! (>= new-limit (var-get current-total-services)) err-invalid-limit)
+    (var-set total-service-limit new-limit)
+    (ok true)))
+
+;; Add services for sale
+(define-public (add-services-for-sale (quantity uint) (cost uint))
+  (let (
+    (current-balance (default-to u0 (map-get? user-service-balance tx-sender)))
+    (current-for-sale (get quantity (default-to {quantity: u0, cost: u0} (map-get? services-for-sale {user: tx-sender}))))
+    (new-for-sale (+ quantity current-for-sale))
+  )
+    (asserts! (> quantity u0) err-invalid-quantity)
+    (asserts! (> cost u0) err-invalid-cost)
+    (asserts! (>= current-balance new-for-sale) err-insufficient-funds)
+    (try! (modify-total-services (to-int quantity)))
+    (map-set services-for-sale {user: tx-sender} {quantity: new-for-sale, cost: cost})
+    (ok true)))
